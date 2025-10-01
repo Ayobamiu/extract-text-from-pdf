@@ -1,13 +1,14 @@
 # PDF Extraction Microservice
 
-A Python microservice for extracting text and tables from PDFs, designed to work with Node.js applications.
+A Python microservice for extracting text and tables from PDFs using Google Document AI, designed to work with Node.js applications.
 
 ## Features
 
-- **Hybrid Extraction**: Combines Camelot for table extraction and Tesseract OCR for text
-- **High Accuracy**: Optimized preprocessing for old PDFs and handwritten content
+- **Google Document AI**: Uses Google's advanced Document AI for high-accuracy extraction
+- **High Accuracy**: Optimized for old PDFs, handwritten content, and complex tables
 - **REST API**: Flask-based API for easy integration with Node.js
 - **Robust Error Handling**: Graceful fallbacks and comprehensive logging
+- **Page Limit Handling**: Smart processing for large documents (up to 30 pages)
 - **Configurable**: Environment-based configuration
 
 ## Installation
@@ -19,18 +20,14 @@ cd extract
 pip install -r requirements.txt
 ```
 
-2. Install system dependencies:
+2. Set up Google Cloud Document AI:
 
-```bash
-# macOS
-brew install tesseract ghostscript
+Follow the detailed setup guide in `SETUP_GUIDE.md` to:
 
-# Ubuntu/Debian
-sudo apt-get install tesseract-ocr ghostscript
-
-# Windows
-# Download and install Tesseract from: https://github.com/UB-Mannheim/tesseract/wiki
-```
+- Create a Google Cloud project
+- Enable Document AI API
+- Create a Document AI processor
+- Download service account credentials
 
 ## Usage
 
@@ -40,7 +37,7 @@ sudo apt-get install tesseract-ocr ghostscript
 python app.py
 ```
 
-The service will run on `http://localhost:5000`
+The service will run on `http://localhost:5001`
 
 ### API Endpoints:
 
@@ -115,17 +112,25 @@ Body: file (PDF file)
 Create a `.env` file in the extract directory:
 
 ```env
+# Google Cloud Document AI settings
+GOOGLE_PROJECT_ID=your-project-id
+GOOGLE_PROCESSOR_ID=your-processor-id
+GOOGLE_APPLICATION_CREDENTIALS=/path/to/your/key.json
+GOOGLE_LOCATION=us-central1
+
+# Document AI Processing Options
+ENABLE_IMAGELESS_MODE=true
+MAX_PAGES_PER_REQUEST=15
+
+# Server Configuration
 HOST=0.0.0.0
-PORT=5000
-DEBUG=False
-TESSERACT_CMD=/usr/local/bin/tesseract
-OCR_DPI=300
+PORT=5001
+DEBUG=true
+
+# File Upload Settings
 MAX_FILE_SIZE=52428800
 UPLOAD_FOLDER=uploads
 TEMP_FOLDER=temp
-ENABLE_TABLE_EXTRACTION=True
-ENABLE_OCR_EXTRACTION=True
-LOG_LEVEL=INFO
 ```
 
 ## Integration with Node.js
@@ -142,7 +147,7 @@ async function extractPDF(pdfPath) {
   form.append("file", fs.createReadStream(pdfPath));
 
   try {
-    const response = await axios.post("http://localhost:5000/extract", form, {
+    const response = await axios.post("http://localhost:5001/extract", form, {
       headers: form.getHeaders(),
     });
 
@@ -174,13 +179,16 @@ python app.py
 ### Running with Gunicorn (Production):
 
 ```bash
-gunicorn -w 4 -b 0.0.0.0:5000 app:app
+gunicorn -w 4 -b 0.0.0.0:5001 app:app
 ```
 
 ## Troubleshooting
 
-1. **Tesseract not found**: Make sure Tesseract is installed and in your PATH
-2. **Ghostscript errors**: Install Ghostscript for Camelot to work
-3. **Memory issues**: Reduce OCR_DPI or process files in smaller batches
-4. **Permission errors**: Ensure the service has write access to temp directories
+1. **Google Cloud credentials**: Ensure `GOOGLE_APPLICATION_CREDENTIALS` points to a valid service account key
+2. **Page limit errors**: Documents over 30 pages will be processed partially with warnings
+3. **API errors**: Check your Google Cloud project ID and processor ID
+4. **Permission errors**: Ensure the service has read access to PDF files and write access to temp directories
+
+For detailed setup instructions, see `SETUP_GUIDE.md`.
+
 # extract-text-from-pdf
