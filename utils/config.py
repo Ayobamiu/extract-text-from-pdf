@@ -19,7 +19,6 @@ class Config:
     GOOGLE_APPLICATION_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 
     # Document AI processing options
-    ENABLE_IMAGELESS_MODE = os.getenv("ENABLE_IMAGELESS_MODE", "true").lower() == "true"
     MAX_PAGES_PER_REQUEST = int(os.getenv("MAX_PAGES_PER_REQUEST", "15"))
 
     @classmethod
