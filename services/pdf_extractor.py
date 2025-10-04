@@ -14,9 +14,6 @@ class PDFExtractor:
         self.project_id = os.getenv("GOOGLE_PROJECT_ID")
         self.location = os.getenv("GOOGLE_LOCATION", "us")  # Default to us
         self.processor_id = os.getenv("GOOGLE_PROCESSOR_ID")
-        self.enable_imageless_mode = (
-            os.getenv("ENABLE_IMAGELESS_MODE", "true").lower() == "true"
-        )
         self.max_pages_per_request = int(os.getenv("MAX_PAGES_PER_REQUEST", "15"))
 
         # Validate configuration
@@ -122,49 +119,26 @@ class PDFExtractor:
 
             logger.info(f"Processing document with processor: {processor_name}")
 
-            # Try imageless mode first (supports up to 30 pages)
-            try:
-                logger.info(
-                    f"Attempting imageless mode processing (enabled: {self.enable_imageless_mode})..."
-                )
+            logger.info("Processing document with Document AI...")
 
-                # Build request with optional imageless mode
-                request_kwargs = {
-                    "name": processor_name,
-                    "raw_document": documentai.RawDocument(
-                        content=image_content, mime_type="application/pdf"
-                    ),
-                }
+            # Build request
+            request_kwargs = {
+                "name": processor_name,
+                "raw_document": documentai.RawDocument(
+                    content=image_content, mime_type="application/pdf"
+                ),
+            }
 
-                if self.enable_imageless_mode:
-                    request_kwargs["process_options"] = documentai.ProcessOptions(
-                        ocr_config=documentai.OcrConfig(
-                            enable_native_pdf_parsing=True, compute_style_info=True
-                        )
-                    )
+            request = documentai.ProcessRequest(**request_kwargs)
 
-                request = documentai.ProcessRequest(**request_kwargs)
+            logger.info("Sending request to Document AI...")
+            result = client.process_document(request=request)
+            document = result.document
 
-                logger.info("Sending request to Document AI (imageless mode)...")
-                result = client.process_document(request=request)
-                document = result.document
+            logger.info("Document AI processing completed successfully")
+            logger.info(f"Document has {len(document.pages)} pages")
 
-                logger.info(
-                    "Document AI processing completed successfully (imageless mode)"
-                )
-                logger.info(f"Document has {len(document.pages)} pages")
-
-                return document
-
-            except gcp_exceptions.GoogleAPIError as e:
-                if "PAGE_LIMIT_EXCEEDED" in str(e):
-                    logger.warning(f"Imageless mode failed due to page limit: {str(e)}")
-                    logger.info("Attempting page splitting approach...")
-                    return self._process_large_document(
-                        client, processor_name, image_content
-                    )
-                else:
-                    raise e
+            return document
 
         except gcp_exceptions.GoogleAPIError as e:
             logger.error(f"Google API error: {str(e)}")
@@ -194,11 +168,6 @@ class PDFExtractor:
                 name=processor_name,
                 raw_document=documentai.RawDocument(
                     content=image_content, mime_type="application/pdf"
-                ),
-                process_options=documentai.ProcessOptions(
-                    ocr_config=documentai.OcrConfig(
-                        enable_native_pdf_parsing=True, compute_style_info=True
-                    )
                 ),
             )
 

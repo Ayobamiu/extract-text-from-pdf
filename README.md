@@ -119,7 +119,6 @@ GOOGLE_APPLICATION_CREDENTIALS=/path/to/your/key.json
 GOOGLE_LOCATION=us-central1
 
 # Document AI Processing Options
-ENABLE_IMAGELESS_MODE=true
 MAX_PAGES_PER_REQUEST=15
 
 # Server Configuration
