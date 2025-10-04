@@ -122,6 +122,7 @@ class PDFChunker:
             merged_pages = []
             merged_tables = []
             merged_text = []
+            merged_markdown = []  # Add markdown merging
             total_pages = 0
 
             for chunk_result in chunk_results:
@@ -152,6 +153,11 @@ class PDFChunker:
                 if chunk_text:
                     merged_text.append(chunk_text)
 
+                # Merge markdown
+                chunk_markdown = data.get("markdown", "")
+                if chunk_markdown:
+                    merged_markdown.append(chunk_markdown)
+
                 total_pages += len(pages)
 
             # Create merged result
@@ -159,6 +165,9 @@ class PDFChunker:
                 "pages": merged_pages,
                 "tables": merged_tables,
                 "full_text": "\n\n".join(merged_text),
+                "markdown": "\n\n---\n\n".join(merged_markdown)
+                if merged_markdown
+                else "",  # Add markdown field
                 "metadata": {
                     "total_pages": total_pages,
                     "chunks_processed": len(chunk_results),

@@ -4,6 +4,7 @@ import os
 import json
 from google.cloud import documentai
 from google.api_core import exceptions as gcp_exceptions
+from docai_converter import convert_document_ai_to_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -197,10 +198,38 @@ class PDFExtractor:
             text_result = self._extract_text_from_document(document)
             tables_result = self._extract_tables_from_document(document)
 
+            # Get the full text from Document AI (document.text)
+            full_text = (
+                document.text
+                if hasattr(document, "text")
+                else text_result.get("raw_text", "")
+            )
+
+            # Convert Document AI response to markdown using V3 converter
+            logger.info("Converting Document AI response to markdown...")
+            try:
+                # Convert Document AI document to dict format for V3 converter
+                document_dict = self._document_to_dict(document)
+                markdown_content = convert_document_ai_to_markdown(document_dict)
+                logger.info(
+                    f"Markdown conversion completed. Length: {len(markdown_content)} characters"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Markdown conversion failed: {str(e)}. Using fallback markdown."
+                )
+                # Fallback: Create basic markdown from full text
+                if full_text:
+                    markdown_content = f"# Document\n\n{full_text}"
+                else:
+                    markdown_content = "# Document\n\n*No text content available*"
+
             # Combine results
             result = {
                 "pages": text_result.get("pages", []),
                 "tables": tables_result.get("tables", []),
+                "full_text": full_text,  # Use actual Document AI text
+                "markdown": markdown_content,  # Add V3 markdown conversion
                 "metadata": {
                     "total_pages": len(document.pages),
                     "total_tables": len(tables_result.get("tables", [])),
@@ -220,6 +249,213 @@ class PDFExtractor:
         except Exception as e:
             logger.error(f"Error parsing Document AI response: {str(e)}")
             raise
+
+    def _document_to_dict(self, document: Any) -> Dict[str, Any]:
+        """Convert Document AI document object to dictionary format for V3 converter"""
+        try:
+            # Create a simple structure that the V3 converter can work with
+            document_dict = {
+                "text": document.text if hasattr(document, "text") else "",
+                "pages": [],
+            }
+
+            # Convert pages
+            for page in document.pages:
+                page_dict = {
+                    "blocks": [],
+                    "paragraphs": [],
+                    "lines": [],
+                    "tables": [],
+                    "formFields": [],
+                }
+
+                # Convert paragraphs - handle the actual Document AI structure
+                for paragraph in page.paragraphs:
+                    try:
+                        # Check if paragraph has layout attribute
+                        if hasattr(paragraph, "layout"):
+                            layout = paragraph.layout
+                        else:
+                            # Try alternative attribute names
+                            layout = getattr(paragraph, "bounding_poly", None)
+                            if not layout:
+                                continue
+
+                        # Extract text from paragraph
+                        paragraph_text = self._get_text_from_layout(
+                            layout, document.text
+                        )
+                        if paragraph_text.strip():
+                            # Create paragraph dict with proper structure
+                            para_dict = {
+                                "layout": {
+                                    "textAnchor": {
+                                        "textSegments": [
+                                            {
+                                                "startIndex": seg.start_index,
+                                                "endIndex": seg.end_index,
+                                            }
+                                            for seg in layout.text_anchor.text_segments
+                                        ]
+                                    },
+                                    "boundingPoly": {
+                                        "normalizedVertices": [
+                                            {"x": v.x, "y": v.y}
+                                            for v in layout.bounding_poly.normalized_vertices
+                                        ]
+                                    },
+                                }
+                            }
+                            page_dict["paragraphs"].append(para_dict)
+                    except Exception as e:
+                        logger.warning(f"Error processing paragraph: {str(e)}")
+                        continue
+
+                # Convert tables
+                for table in page.tables:
+                    try:
+                        table_dict = {
+                            "headerRows": [],
+                            "bodyRows": [],
+                            "layout": {
+                                "textAnchor": {
+                                    "textSegments": [
+                                        {
+                                            "startIndex": seg.start_index,
+                                            "endIndex": seg.end_index,
+                                        }
+                                        for seg in table.layout.text_anchor.text_segments
+                                    ]
+                                },
+                                "boundingPoly": {
+                                    "normalizedVertices": [
+                                        {"x": v.x, "y": v.y}
+                                        for v in table.layout.bounding_poly.normalized_vertices
+                                    ]
+                                },
+                            },
+                        }
+
+                        # Convert header rows
+                        for row in table.header_rows:
+                            row_dict = {"cells": []}
+                            for cell in row.cells:
+                                cell_dict = {
+                                    "layout": {
+                                        "textAnchor": {
+                                            "textSegments": [
+                                                {
+                                                    "startIndex": seg.start_index,
+                                                    "endIndex": seg.end_index,
+                                                }
+                                                for seg in cell.layout.text_anchor.text_segments
+                                            ]
+                                        },
+                                        "boundingPoly": {
+                                            "normalizedVertices": [
+                                                {"x": v.x, "y": v.y}
+                                                for v in cell.layout.bounding_poly.normalized_vertices
+                                            ]
+                                        },
+                                    },
+                                    "rowSpan": cell.row_span,
+                                    "colSpan": cell.col_span,
+                                }
+                                row_dict["cells"].append(cell_dict)
+                            table_dict["headerRows"].append(row_dict)
+
+                        # Convert body rows
+                        for row in table.body_rows:
+                            row_dict = {"cells": []}
+                            for cell in row.cells:
+                                cell_dict = {
+                                    "layout": {
+                                        "textAnchor": {
+                                            "textSegments": [
+                                                {
+                                                    "startIndex": seg.start_index,
+                                                    "endIndex": seg.end_index,
+                                                }
+                                                for seg in cell.layout.text_anchor.text_segments
+                                            ]
+                                        },
+                                        "boundingPoly": {
+                                            "normalizedVertices": [
+                                                {"x": v.x, "y": v.y}
+                                                for v in cell.layout.bounding_poly.normalized_vertices
+                                            ]
+                                        },
+                                    },
+                                    "rowSpan": cell.row_span,
+                                    "colSpan": cell.col_span,
+                                }
+                                row_dict["cells"].append(cell_dict)
+                            table_dict["bodyRows"].append(row_dict)
+
+                        page_dict["tables"].append(table_dict)
+                    except Exception as e:
+                        logger.warning(f"Error processing table: {str(e)}")
+                        continue
+
+                # Convert form fields
+                for field in page.form_fields:
+                    try:
+                        field_dict = {
+                            "fieldName": {
+                                "layout": {
+                                    "textAnchor": {
+                                        "textSegments": [
+                                            {
+                                                "startIndex": seg.start_index,
+                                                "endIndex": seg.end_index,
+                                            }
+                                            for seg in field.field_name.layout.text_anchor.text_segments
+                                        ]
+                                    },
+                                    "boundingPoly": {
+                                        "normalizedVertices": [
+                                            {"x": v.x, "y": v.y}
+                                            for v in field.field_name.layout.bounding_poly.normalized_vertices
+                                        ]
+                                    },
+                                }
+                            },
+                            "fieldValue": {
+                                "layout": {
+                                    "textAnchor": {
+                                        "textSegments": [
+                                            {
+                                                "startIndex": seg.start_index,
+                                                "endIndex": seg.end_index,
+                                            }
+                                            for seg in field.field_value.layout.text_anchor.text_segments
+                                        ]
+                                    },
+                                    "boundingPoly": {
+                                        "normalizedVertices": [
+                                            {"x": v.x, "y": v.y}
+                                            for v in field.field_value.layout.bounding_poly.normalized_vertices
+                                        ]
+                                    },
+                                }
+                            },
+                        }
+                        page_dict["formFields"].append(field_dict)
+                    except Exception as e:
+                        logger.warning(f"Error processing form field: {str(e)}")
+                        continue
+
+                document_dict["pages"].append(page_dict)
+
+            return document_dict
+
+        except Exception as e:
+            logger.error(f"Error converting document to dict: {str(e)}")
+            # Return minimal structure if conversion fails
+            return {
+                "text": document.text if hasattr(document, "text") else "",
+                "pages": [],
+            }
 
     def _extract_text_from_document(self, document: Any) -> Dict[str, Any]:
         """Extract text content from Document AI response"""
