@@ -1,6 +1,8 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
+import json
+import tempfile
 import logging
 from services.pdf_extractor import PDFExtractor
 from chunked_processor import ChunkedPDFProcessor
@@ -9,6 +11,59 @@ from utils.config import Config
 # Configure logging first
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def setup_google_credentials():
+    """Setup Google Cloud credentials for production"""
+    try:
+        # Check if we have service account JSON in environment variable
+        service_account_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
+
+        if service_account_json:
+            logger.info(
+                "Setting up Google credentials from GOOGLE_SERVICE_ACCOUNT_JSON"
+            )
+
+            # Parse the JSON to validate it
+            try:
+                credentials_data = json.loads(service_account_json)
+                logger.info(
+                    f"Service account for project: {credentials_data.get('project_id', 'unknown')}"
+                )
+            except json.JSONDecodeError as e:
+                logger.error(f"Invalid JSON in GOOGLE_SERVICE_ACCOUNT_JSON: {e}")
+                raise ValueError("Invalid JSON in GOOGLE_SERVICE_ACCOUNT_JSON")
+
+            # Create temporary file for credentials
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".json", delete=False
+            ) as f:
+                f.write(service_account_json)
+                credentials_path = f.name
+
+            # Set the environment variable for Google Cloud libraries
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
+            logger.info(f"Google credentials file created at: {credentials_path}")
+
+        elif os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
+            logger.info("Using existing GOOGLE_APPLICATION_CREDENTIALS file path")
+
+        else:
+            logger.warning(
+                "No Google credentials found. Service will start but Document AI will fail."
+            )
+
+    except Exception as e:
+        logger.error(f"Error setting up Google credentials: {e}")
+        raise
+
+
+# Setup Google credentials before validating config
+try:
+    setup_google_credentials()
+except Exception as e:
+    logger.error(f"Failed to setup Google credentials: {e}")
+    # Don't raise here - let the service start and fail gracefully
 
 # Validate Google Cloud configuration
 try:
@@ -19,26 +74,36 @@ except ValueError as e:
     logger.error("Please set the following environment variables:")
     logger.error("- GOOGLE_PROJECT_ID")
     logger.error("- GOOGLE_PROCESSOR_ID")
-    logger.error("- GOOGLE_APPLICATION_CREDENTIALS (path to service account JSON)")
+    logger.error(
+        "- GOOGLE_SERVICE_ACCOUNT_JSON (JSON content) OR GOOGLE_APPLICATION_CREDENTIALS (file path)"
+    )
     logger.error("- GOOGLE_LOCATION (optional, defaults to 'us')")
     logger.error("")
-    logger.error(
-        "For testing without Google Cloud, you can temporarily comment out the validation."
-    )
-    raise
+    logger.error("Service will start but Document AI features will not work.")
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for Node.js communication
 
 # Initialize PDF extractor and chunked processor
-pdf_extractor = PDFExtractor()
-chunked_processor = ChunkedPDFProcessor()  # Uses MAX_PAGES_PER_REQUEST from config
+try:
+    pdf_extractor = PDFExtractor()
+    chunked_processor = ChunkedPDFProcessor()  # Uses MAX_PAGES_PER_REQUEST from config
+    logger.info("PDF extractor and chunked processor initialized successfully")
+except Exception as e:
+    logger.error(f"Failed to initialize PDF extractor: {e}")
+    pdf_extractor = None
+    chunked_processor = None
 
 
 @app.route("/health", methods=["GET"])
 def health_check():
     """Health check endpoint"""
-    return jsonify({"status": "healthy", "service": "pdf-extractor"})
+    status = {
+        "status": "healthy",
+        "service": "pdf-extractor",
+        "google_cloud_configured": pdf_extractor is not None,
+    }
+    return jsonify(status)
 
 
 @app.route("/extract", methods=["POST"])
@@ -48,6 +113,14 @@ def extract_pdf():
         logger.info("=== EXTRACT ENDPOINT CALLED ===")
         logger.info(f"Request method: {request.method}")
         logger.info(f"Request files: {list(request.files.keys())}")
+
+        if not pdf_extractor:
+            return jsonify(
+                {
+                    "status": "error",
+                    "message": "PDF extractor not initialized. Check Google Cloud configuration.",
+                }
+            ), 500
 
         # Check if file is provided
         if "file" not in request.files:
@@ -105,6 +178,11 @@ def extract_text_only():
     try:
         logger.info("=== EXTRACT TEXT ENDPOINT CALLED ===")
 
+        if not pdf_extractor:
+            return jsonify(
+                {"status": "error", "message": "PDF extractor not initialized"}
+            ), 500
+
         if "file" not in request.files:
             return jsonify({"error": "No file provided"}), 400
 
@@ -159,6 +237,11 @@ def extract_tables_only():
     try:
         logger.info("=== EXTRACT TABLES ENDPOINT CALLED ===")
 
+        if not pdf_extractor:
+            return jsonify(
+                {"status": "error", "message": "PDF extractor not initialized"}
+            ), 500
+
         if "file" not in request.files:
             return jsonify({"error": "No file provided"}), 400
 
@@ -212,6 +295,11 @@ def extract_pdf_chunked():
     try:
         logger.info("=== CHUNKED EXTRACT ENDPOINT CALLED ===")
 
+        if not chunked_processor:
+            return jsonify(
+                {"status": "error", "message": "Chunked processor not initialized"}
+            ), 500
+
         # Check if file is provided
         if "file" not in request.files:
             return jsonify({"error": "No file provided"}), 400
@@ -249,5 +337,13 @@ def extract_pdf_chunked():
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5001))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    # Create necessary directories
+    Config.create_directories()
+
+    # Start the Flask app
+    port = int(os.getenv("PORT", 5001))
+    host = os.getenv("HOST", "0.0.0.0")
+    debug = os.getenv("DEBUG", "False").lower() == "true"
+
+    logger.info(f"Starting Flask PDF Extractor service on {host}:{port}")
+    app.run(host=host, port=port, debug=debug)
