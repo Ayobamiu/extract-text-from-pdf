@@ -52,6 +52,16 @@ class Config:
     )
     ENABLE_OCR_EXTRACTION = os.getenv("ENABLE_OCR_EXTRACTION", "True").lower() == "true"
 
+    # Timeout settings (in seconds)
+    # Set to 0 or None to disable timeouts
+    GOOGLE_CLOUD_TIMEOUT = int(os.getenv("GOOGLE_CLOUD_TIMEOUT", "0"))  # 0 = no timeout
+    MINERU_TIMEOUT = int(os.getenv("MINERU_TIMEOUT", "0"))  # 0 = no timeout
+    HTTP_TIMEOUT = int(os.getenv("HTTP_TIMEOUT", "0"))  # 0 = no timeout
+    
+    # Large file processing settings
+    MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "500"))  # 500MB default
+    ENABLE_LARGE_FILE_CHUNKING = os.getenv("ENABLE_LARGE_FILE_CHUNKING", "True").lower() == "true"
+
     # Logging
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
