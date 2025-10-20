@@ -113,7 +113,7 @@ def health_check():
     return jsonify(status)
 
 
-@app.route("/extract-with-google-document-ai", methods=["POST"])
+@app.route("/extract", methods=["POST"])
 def extract_pdf():
     """Main PDF extraction endpoint with automatic chunking for large PDFs"""
     try:
@@ -340,81 +340,6 @@ def extract_pdf_chunked():
 
     except Exception as e:
         logger.error(f"Error in chunked processing: {str(e)}")
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-# This route is used to extract PDF using MinerU API with markdown cleaning
-@app.route("/extract", methods=["POST"])
-def extract_pdf_with_mineru():
-    """Extract PDF using MinerU API with markdown cleaning"""
-    try:
-        logger.info("=== EXTRACT WITH MINERU ENDPOINT CALLED ===")
-        logger.info(f"Request method: {request.method}")
-        logger.info(f"Request files: {list(request.files.keys())}")
-
-        if not mineru_extractor or not mineru_extractor.is_available():
-            return jsonify(
-                {
-                    "success": False,
-                    "error": "MinerU extractor not available. Check MinerU installation.",
-                }
-            ), 500
-
-        # Check if file is provided
-        if "file" not in request.files:
-            logger.error("No file provided in request")
-            return jsonify({"error": "No file provided"}), 400
-
-        file = request.files["file"]
-        if file.filename == "":
-            logger.error("No file selected")
-            return jsonify({"error": "No file selected"}), 400
-
-        filename = file.filename
-        logger.info(f"Received file: {filename}")
-        logger.info(f"File content type: {file.content_type}")
-
-        # Validate file type
-        if not filename.lower().endswith(".pdf"):
-            logger.error(
-                f"Invalid file type: {filename}. Only PDF files are supported."
-            )
-            return jsonify({"error": "Only PDF files are supported"}), 400
-
-        # Save uploaded file temporarily
-        temp_path = f"temp_mineru_{filename}"
-        logger.info(f"Saving file to: {temp_path}")
-        file.save(temp_path)
-        logger.info(
-            f"File saved successfully. Size: {os.path.getsize(temp_path)} bytes"
-        )
-
-        if os.path.getsize(temp_path) == 0:
-            logger.error(f"Uploaded file is empty: {filename}")
-            return jsonify({"error": "Uploaded file is empty"}), 400
-
-        try:
-            # Use MinerU extractor
-            logger.info(f"Starting MinerU extraction for: {filename}")
-            result = mineru_extractor.extract_pdf(temp_path, filename)
-
-            if result["success"]:
-                logger.info("MinerU extraction completed successfully")
-                return jsonify(result)
-            else:
-                logger.error(
-                    f"MinerU extraction failed: {result.get('error', 'Unknown error')}"
-                )
-                return jsonify(result), 500
-
-        finally:
-            # Clean up temporary file
-            if os.path.exists(temp_path):
-                logger.info(f"Cleaning up temporary file: {temp_path}")
-                os.remove(temp_path)
-
-    except Exception as e:
-        logger.error(f"Error processing PDF with MinerU: {str(e)}", exc_info=True)
         return jsonify({"success": False, "error": str(e)}), 500
 
 

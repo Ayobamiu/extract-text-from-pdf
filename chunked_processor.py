@@ -8,6 +8,7 @@ import logging
 from typing import Dict, Any, List
 from pdf_chunker import PDFChunker
 from services.pdf_extractor import PDFExtractor
+from services.mineru_extractor import MinerUExtractor
 from utils.config import Config
 
 logger = logging.getLogger(__name__)
@@ -29,7 +30,44 @@ class ChunkedPDFProcessor:
 
         self.chunker = PDFChunker(chunk_size=chunk_size)
         self.pdf_extractor = PDFExtractor()
+        self.mineru_extractor = MinerUExtractor()
         logger.info(f"ChunkedPDFProcessor initialized with chunk_size={chunk_size}")
+
+    def _adapt_mineru_response(self, mineru_result: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Adapt MinerU response format to match Google Document AI format
+
+        Args:
+            mineru_result: Result from MinerUExtractor.extract_pdf()
+
+        Returns:
+            Adapted result in Google Document AI format
+        """
+        if not mineru_result.get("success", False):
+            raise RuntimeError(
+                f"MinerU extraction failed: {mineru_result.get('error', 'Unknown error')}"
+            )
+
+        data = mineru_result.get("data", {})
+
+        # Adapt MinerU format to Google Document AI format
+        adapted_result = {
+            "pages": data.get("pages", []),
+            "tables": data.get("tables", []),
+            "full_text": data.get("full_text", ""),
+            "markdown": data.get("markdown", ""),
+            "metadata": {
+                "total_pages": data.get("metadata", {}).get("total_pages", 0),
+                "total_tables": len(data.get("tables", [])),
+                "extraction_method": "mineru_chunked",
+                "confidence": 0.95,  # High confidence for MinerU
+                "file_size_mb": data.get("metadata", {}).get("file_size_mb", 0),
+            },
+            "raw_text": data.get("raw_text", ""),
+            "structured_data": data.get("structured_data", {}),
+        }
+
+        return adapted_result
 
     def process_large_pdf(self, pdf_path: str) -> Dict[str, Any]:
         """
@@ -57,10 +95,16 @@ class ChunkedPDFProcessor:
                 )
 
                 try:
-                    # Process chunk with Document AI
-                    chunk_result = self.pdf_extractor.extract_from_pdf(
-                        chunk["file_path"]
+                    # Process chunk with MinerU (instead of Google Document AI)
+                    chunk_filename = (
+                        f"chunk_{chunk['chunk_id']}_{os.path.basename(pdf_path)}"
                     )
+                    mineru_result = self.mineru_extractor.extract_pdf(
+                        chunk["file_path"], chunk_filename
+                    )
+
+                    # Adapt MinerU response to match expected format
+                    chunk_result = self._adapt_mineru_response(mineru_result)
 
                     # Add chunk metadata
                     chunk_results.append(
@@ -96,7 +140,7 @@ class ChunkedPDFProcessor:
             self.chunker.cleanup_chunks(chunks)
 
             # Add processing metadata
-            merged_result["metadata"]["processing_method"] = "chunked_document_ai"
+            merged_result["metadata"]["processing_method"] = "mineru_chunked"
             merged_result["metadata"]["original_file"] = pdf_path
             merged_result["metadata"]["chunks_created"] = len(chunks)
 
@@ -118,11 +162,15 @@ class ChunkedPDFProcessor:
             Document results
         """
         try:
-            logger.info(f"Processing small PDF directly: {pdf_path}")
-            result = self.pdf_extractor.extract_from_pdf(pdf_path)
+            logger.info(f"Processing small PDF directly with MinerU: {pdf_path}")
+            filename = os.path.basename(pdf_path)
+            mineru_result = self.mineru_extractor.extract_pdf(pdf_path, filename)
+
+            # Adapt MinerU response to match expected format
+            result = self._adapt_mineru_response(mineru_result)
 
             # Add processing metadata
-            result["metadata"]["processing_method"] = "direct_document_ai"
+            result["metadata"]["processing_method"] = "mineru_direct"
             result["metadata"]["original_file"] = pdf_path
 
             return result
