@@ -159,9 +159,17 @@ def extract_pdf():
         )
 
         try:
-            # Use chunked processor for smart PDF processing
-            logger.info(f"Starting smart PDF processing for: {file.filename}")
-            results = chunked_processor.process_pdf(temp_path)
+            # Get extraction method from form data (default to mineru)
+            extraction_method = request.form.get("extraction_method", "mineru")
+            logger.info(f"Using extraction method: {extraction_method}")
+
+            # Use chunked processor for smart PDF processing with specified method
+            logger.info(
+                f"Starting smart PDF processing for: {file.filename} with {extraction_method}"
+            )
+            results = chunked_processor.process_pdf(
+                temp_path, extraction_method=extraction_method
+            )
             logger.info(f"PDF processing completed successfully")
 
             return jsonify(
