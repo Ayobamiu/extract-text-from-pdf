@@ -168,6 +168,11 @@ def health_check():
 @app.route("/extract", methods=["POST"])
 def extract_pdf():
     """Main PDF extraction endpoint with automatic chunking for large PDFs"""
+    import time
+
+    # Track extraction time
+    start_time = time.time()
+
     try:
         logger.info("=== EXTRACT ENDPOINT CALLED ===")
         logger.info(f"Request method: {request.method}")
@@ -219,13 +224,25 @@ def extract_pdf():
             logger.info(
                 f"Starting smart PDF processing for: {file.filename} with {extraction_method}"
             )
+
+            # This is where all the extraction happens - we time this entire operation
             results = chunked_processor.process_pdf(
                 temp_path, extraction_method=extraction_method
             )
-            logger.info(f"PDF processing completed successfully")
+
+            logger.info("PDF processing completed successfully")
+
+            # Calculate extraction time
+            extraction_time = time.time() - start_time
+            logger.info(f"Total extraction time: {extraction_time:.2f} seconds")
 
             return jsonify(
-                {"success": True, "data": results, "filename": file.filename}
+                {
+                    "success": True,
+                    "data": results,
+                    "filename": file.filename,
+                    "extraction_time_seconds": round(extraction_time, 2),
+                }
             )
 
         finally:
@@ -236,171 +253,15 @@ def extract_pdf():
 
     except Exception as e:
         logger.error(f"Error processing PDF: {str(e)}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-@app.route("/extract-text", methods=["POST"])
-def extract_text_only():
-    """Extract only text content using chunked processing"""
-    try:
-        logger.info("=== EXTRACT TEXT ENDPOINT CALLED ===")
-
-        if not pdf_extractor:
-            return jsonify(
-                {"status": "error", "message": "PDF extractor not initialized"}
-            ), 500
-
-        if "file" not in request.files:
-            return jsonify({"error": "No file provided"}), 400
-
-        file = request.files["file"]
-        if file.filename == "":
-            return jsonify({"error": "No file selected"}), 400
-
-        # Validate file type
-        if not file.filename.lower().endswith(".pdf"):
-            return jsonify({"error": "Only PDF files are supported"}), 400
-
-        # Save uploaded file temporarily
-        temp_path = f"temp_text_{file.filename}"
-        file.save(temp_path)
-
-        try:
-            # Use chunked processor for smart PDF processing
-            logger.info(f"Starting chunked text extraction for: {file.filename}")
-            results = chunked_processor.process_pdf(temp_path)
-
-            # Extract only text from the results
-            text_data = {
-                "pages": results.get("pages", []),
-                "full_text": results.get("full_text", ""),
-                "metadata": {
-                    "total_pages": results.get("metadata", {}).get("total_pages", 0),
-                    "processing_method": results.get("metadata", {}).get(
-                        "processing_method", "unknown"
-                    ),
-                    "word_count": len(results.get("full_text", "").split()),
-                },
+        extraction_time = time.time() - start_time
+        logger.info(f"Failed extraction time: {extraction_time:.2f} seconds")
+        return jsonify(
+            {
+                "success": False,
+                "error": str(e),
+                "extraction_time_seconds": round(extraction_time, 2),
             }
-
-            logger.info(
-                f"Text extraction completed successfully. {text_data['metadata']['word_count']} words extracted"
-            )
-            return jsonify(
-                {"success": True, "text": text_data, "filename": file.filename}
-            )
-        finally:
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-
-    except Exception as e:
-        logger.error(f"Error extracting text: {str(e)}")
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-@app.route("/extract-tables", methods=["POST"])
-def extract_tables_only():
-    """Extract only tables from PDF using chunked processing"""
-    try:
-        logger.info("=== EXTRACT TABLES ENDPOINT CALLED ===")
-
-        if not pdf_extractor:
-            return jsonify(
-                {"status": "error", "message": "PDF extractor not initialized"}
-            ), 500
-
-        if "file" not in request.files:
-            return jsonify({"error": "No file provided"}), 400
-
-        file = request.files["file"]
-        if file.filename == "":
-            return jsonify({"error": "No file selected"}), 400
-
-        # Validate file type
-        if not file.filename.lower().endswith(".pdf"):
-            return jsonify({"error": "Only PDF files are supported"}), 400
-
-        # Save uploaded file temporarily
-        temp_path = f"temp_tables_{file.filename}"
-        file.save(temp_path)
-
-        try:
-            # Use chunked processor for smart PDF processing
-            logger.info(f"Starting chunked table extraction for: {file.filename}")
-            results = chunked_processor.process_pdf(temp_path)
-
-            # Extract only tables from the results
-            tables_data = {
-                "tables": results.get("tables", []),
-                "metadata": {
-                    "total_tables": len(results.get("tables", [])),
-                    "processing_method": results.get("metadata", {}).get(
-                        "processing_method", "unknown"
-                    ),
-                    "total_pages": results.get("metadata", {}).get("total_pages", 0),
-                },
-            }
-
-            logger.info(
-                f"Table extraction completed successfully. Found {len(tables_data['tables'])} tables"
-            )
-            return jsonify(
-                {"success": True, "tables": tables_data, "filename": file.filename}
-            )
-        finally:
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-
-    except Exception as e:
-        logger.error(f"Error extracting tables: {str(e)}")
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-@app.route("/extract-chunked", methods=["POST"])
-def extract_pdf_chunked():
-    """Force chunked processing for large PDFs"""
-    try:
-        logger.info("=== CHUNKED EXTRACT ENDPOINT CALLED ===")
-
-        if not chunked_processor:
-            return jsonify(
-                {"status": "error", "message": "Chunked processor not initialized"}
-            ), 500
-
-        # Check if file is provided
-        if "file" not in request.files:
-            return jsonify({"error": "No file provided"}), 400
-
-        file = request.files["file"]
-        if file.filename == "":
-            return jsonify({"error": "No file selected"}), 400
-
-        # Validate file type
-        if not file.filename.lower().endswith(".pdf"):
-            return jsonify({"error": "Only PDF files are supported"}), 400
-
-        # Save uploaded file temporarily
-        temp_path = f"temp_chunked_{file.filename}"
-        file.save(temp_path)
-
-        try:
-            # Force chunked processing
-            logger.info(f"Starting forced chunked processing for: {file.filename}")
-            results = chunked_processor.process_large_pdf(temp_path)
-            logger.info(f"Chunked processing completed successfully")
-
-            return jsonify(
-                {"success": True, "data": results, "filename": file.filename}
-            )
-
-        finally:
-            # Clean up temporary file
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-
-    except Exception as e:
-        logger.error(f"Error in chunked processing: {str(e)}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        ), 500
 
 
 if __name__ == "__main__":
