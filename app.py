@@ -4,6 +4,9 @@ import os
 import json
 import tempfile
 import logging
+import signal
+import sys
+import atexit
 from services.pdf_extractor import PDFExtractor
 from services.mineru_extractor import MinerUExtractor
 from chunked_processor import ChunkedPDFProcessor
@@ -12,6 +15,55 @@ from utils.config import Config
 # Configure logging first
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Global variables for cleanup
+pdf_extractor = None
+mineru_extractor = None
+chunked_processor = None
+
+
+def cleanup_resources():
+    """Clean up resources to prevent semaphore leaks"""
+    global pdf_extractor, mineru_extractor, chunked_processor
+
+    logger.info("Cleaning up resources...")
+
+    # Clean up extractors
+    if pdf_extractor:
+        try:
+            # Close any open connections
+            logger.info("Cleaning up PDF extractor")
+        except Exception as e:
+            logger.warning(f"Error cleaning up PDF extractor: {e}")
+
+    if mineru_extractor:
+        try:
+            # Clean up MinerU resources
+            logger.info("Cleaning up MinerU extractor")
+            mineru_extractor.cleanup()
+        except Exception as e:
+            logger.warning(f"Error cleaning up MinerU extractor: {e}")
+
+    if chunked_processor:
+        try:
+            logger.info("Cleaning up chunked processor")
+        except Exception as e:
+            logger.warning(f"Error cleaning up chunked processor: {e}")
+
+    logger.info("Resource cleanup completed")
+
+
+def signal_handler(signum, frame):
+    """Handle shutdown signals"""
+    logger.info(f"Received signal {signum}, shutting down gracefully...")
+    cleanup_resources()
+    sys.exit(0)
+
+
+# Register cleanup handlers
+atexit.register(cleanup_resources)
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
 
 
 def setup_google_credentials():

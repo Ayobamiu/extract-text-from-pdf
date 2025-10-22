@@ -292,6 +292,23 @@ class MinerUExtractor:
         """Check if MinerU extractor is available"""
         return self.mineru_available
 
+    def cleanup(self):
+        """Clean up MinerU resources to prevent semaphore leaks"""
+        try:
+            logger.info("Cleaning up MinerU resources...")
+
+            # Clear PyTorch cache
+            if "torch" in globals():
+                import torch
+
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+
+            logger.info("MinerU cleanup completed")
+        except Exception as e:
+            logger.warning(f"Error during MinerU cleanup: {e}")
+
     def get_status(self) -> Dict[str, Any]:
         """Get the status of the MinerU extractor"""
         return {
