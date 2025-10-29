@@ -57,7 +57,7 @@ def signal_handler(signum, frame):
     """Handle shutdown signals"""
     logger.info(f"Received signal {signum}, shutting down gracefully...")
     cleanup_resources()
-    sys.exit(0)
+    # Don't call sys.exit() - let PM2 handle the restart
 
 
 # Register cleanup handlers
